@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirWrite AI - Real-Time Finger Tracking Notepad</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Tesseract.js for Offline OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        cyber: {
+                            bg: '#030712',
+                            card: 'rgba(17, 24, 39, 0.7)',
+                            accent: '#06b6d4',
+                            glow: '#d946ef',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Glassmorphism Styles */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-panel-light {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .mirror {
+            transform: scaleX(-1);
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.6); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 0.4; }
+            100% { transform: scale(0.6); opacity: 0.8; }
+        }
+        .cursor-pulse {
+            animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 overflow-hidden font-sans antialiased h-screen w-screen flex flex-col transition-colors duration-300">
+
+    <!-- 1. Header Area -->
+    <header class="h-16 px-6 border-b border-slate-800/40 bg-slate-950/20 backdrop-blur-md flex items-center justify-between shrink-0 z-40">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                <span class="font-extrabold text-white text-base tracking-tighter">A</span>
+            </div>
+            <div>
+                <h1 class="text-base font-extrabold tracking-tight bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                    AirWrite AI
+                </h1>
+                <p class="text-[10px] text-slate-500 font-medium">Real-Time Gesture Writing Pad</p>
+            </div>
+        </div>
+
+        <!-- Right Side Controls -->
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border border-slate-800/50 bg-slate-900/30 text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="text-slate-400 text-[10px]">Client Mode (Zero Install)</span>
+            </div>
+            <button id="settings-btn" class="p-2 rounded-xl border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-slate-200 transition">
+                <i data-lucide="settings" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- 2. Main Workspace -->
+    <main class="flex-1 w-full flex overflow-hidden p-6 gap-6 relative z-10">
+        
+        <!-- Left: Air Canvas -->
+        <section class="flex-1 h-full flex flex-col gap-6 relative">
+            <div class="flex-1 relative rounded-2xl overflow-hidden shadow-2xl bg-slate-950 border border-slate-900">
+                <canvas id="drawing-canvas" class="w-full h-full block cursor-none"></canvas>
+
+                <!-- Floating Canvas Actions -->
+                <div class="absolute top-4 left-4 flex gap-2.5 z-20">
+                    <button id="canvas-undo" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700/80 bg-slate-900/80 hover:bg-slate-800 text-xs font-semibold text-slate-300 transition backdrop-blur-md">
+                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Undo
+                    </button>
+                    <button id="canvas-clear" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-950/20 bg-red-950/20 hover:bg-red-950/40 text-xs font-semibold text-red-400 transition backdrop-blur-md">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear
+                    </button>
+                </div>
+
+                <!-- Active Gesture Label Badge -->
+                <div id="gesture-badge" class="absolute top-4 right-4 py-1 px-2.5 rounded-md text-[10px] uppercase font-bold tracking-wider z-20 border backdrop-blur-md border-slate-800/50 bg-slate-900/40 text-slate-400 select-none">
+                    ● Moving/Hover
+                </div>
+
+                <!-- Fist Clear Screen Progress Modal -->
+                <div id="fist-clear-overlay" class="absolute inset-0 bg-red-950/10 backdrop-blur-[1px] flex items-center justify-center pointer-events-none z-30 hidden">
+                    <div class="p-5 rounded-2xl bg-slate-900/90 border border-red-500/20 shadow-xl max-w-xs text-center flex flex-col items-center gap-3">
+                        <i data-lucide="shield-alert" class="w-8 h-8 text-red-400 animate-bounce"></i>
+                        <div>
+                            <p class="text-xs font-semibold text-slate-200">Clearing Canvas</p>
+                            <p class="text-[10px] text-slate-400 mt-0.5">Hold closed fist to complete...</p>
+                        </div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="fist-progress-bar" class="bg-red-500 h-full w-0 transition-all duration-75"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Custom Hover Cursor -->
+                <div id="custom-cursor" class="absolute pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2 rounded-full border flex items-center justify-center w-4 h-4 border-cyan-400 bg-cyan-400/5" style="left: -100px; top: -100px;">
+                    <div id="cursor-dot" class="rounded-full w-1.5 h-1.5 bg-cyan-400"></div>
+                </div>
+
+                <!-- Webcam PiP overlay window -->
+                <div id="camera-pip" class="absolute bottom-4 left-4 w-60 z-20 shadow-2xl rounded-2xl overflow-hidden bg-slate-900 border border-slate-800">
+                    <div class="relative w-full aspect-video flex items-center justify-center">
+                        <video id="webcam" class="absolute top-0 left-0 w-full h-full object-cover mirror" muted playsinline></video>
+                        <canvas id="skeleton-canvas" class="absolute top-0 left-0 w-full h-full object-cover pointer-events-none z-10"></canvas>
+                        
+                        <!-- Model state screens -->
+                        <div id="model-loading-screen" class="absolute inset-0 bg-slate-950/85 z-20 flex flex-col items-center justify-center p-3 text-center">
+                            <div class="w-6 h-6 border-2 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin mb-2"></div>
+                            <p class="text-[10px] text-cyan-400 font-semibold">Loading AI models...</p>
+                        </div>
+                        <div id="camera-off-screen" class="absolute inset-0 bg-slate-950/70 z-20 flex flex-col items-center justify-center text-center p-3">
+                            <i data-lucide="camera-off" class="w-5 h-5 text-slate-500 mb-1"></i>
+                            <p class="text-[9px] text-slate-500">Camera is off</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Quick Control Bar -->
+            <div class="h-12 px-4 rounded-xl border border-slate-800/40 bg-slate-950/25 backdrop-blur-md flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <i data-lucide="activity" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mr-1">Active State:</span>
+                    <div id="active-state-badge" class="px-2 py-0.5 rounded text-[10px] font-bold border border-slate-800 bg-slate-900/30 text-slate-400">
+                        Camera Off
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <div id="fps-badge" class="hidden items-center gap-1.5 text-[10px] text-slate-400 font-semibold border-r border-slate-800 pr-4">
+                        <i data-lucide="cpu" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span>Tracking: <span id="fps-counter">0</span> FPS</span>
+                    </div>
+                    <button id="camera-toggle-btn" class="px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white shadow-lg">
+                        <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+                        <span>Start Camera</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Live Notepad -->
+        <section class="w-96 h-full shrink-0 flex flex-col">
+            <div id="notepad-container" class="flex flex-col h-full rounded-2xl overflow-hidden glass-panel border border-slate-800/80 shadow-2xl">
+                <!-- Header -->
+                <div class="px-5 py-4 border-b border-slate-800/40 flex items-center justify-between shrink-0">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="book-open" class="w-4 h-4 text-cyan-400"></i>
+                        <h2 class="text-sm font-bold tracking-tight">Active Notepad</h2>
+                    </div>
+                    <div class="flex items-center gap-1 text-[10px] text-slate-400 font-medium">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        Auto-saved
+                    </div>
+                </div>
+
+                <!-- Text Area -->
+                <div class="flex-1 p-5 overflow-hidden flex flex-col relative">
+                    <textarea id="notepad-editor" placeholder="Start writing in the air or type notes here directly..." class="flex-1 w-full bg-transparent font-sans text-sm leading-relaxed overflow-y-auto outline-none focus:ring-0 focus:outline-none placeholder-slate-500 text-slate-300 no-scrollbar resize-none border-none"></textarea>
+
+                    <!-- Suggestions bar -->
+                    <div id="predictions-bar" class="mt-2 py-2 px-3 rounded-xl border border-slate-800/60 bg-slate-950/40 backdrop-blur-md flex items-center gap-2 shrink-0 hidden">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
+                        <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider mr-1">Suggestions:</span>
+                        <div id="predictions-list" class="flex flex-wrap gap-1.5 overflow-x-auto no-scrollbar"></div>
+                    </div>
+                </div>
+
+                <!-- Footer controls -->
+                <div class="px-5 py-4 border-t border-slate-800/40 bg-slate-950/20 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                    <div class="flex items-center gap-2">
+                        <button id="btn-copy" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-800 hover:border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-300 transition duration-150">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            <span>Copy</span>
+                        </button>
+                        <button id="btn-speak" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-800 hover:border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-300 transition duration-150">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                            <span>Speak</span>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button id="btn-clear-txt" class="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/15 transition duration-150">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                        <button id="btn-export-txt" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-800 hover:border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-300 transition duration-150">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                            <span>TXT</span>
+                        </button>
+                        <button id="btn-export-pdf" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-cyan-500/20 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-400 transition duration-150">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                            <span>PDF</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 3. Bottom Debug Bar -->
+    <footer class="h-10 px-6 border-t border-slate-800/40 bg-slate-950/40 backdrop-blur-md flex items-center justify-between shrink-0 text-slate-500 text-[10px] font-medium z-30">
+        <div class="flex items-center gap-4">
+            <span class="text-slate-600">AirWrite AI v1.0.0 (Offline-first)</span>
+            <div id="ocr-loading" class="flex items-center gap-1.5 text-cyan-400 hidden">
+                <div class="w-2.5 h-2.5 border-2 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin"></div>
+                <span>Analyzing handwriting...</span>
+            </div>
+            <span id="ocr-stats" class="text-slate-400 flex items-center gap-1.5 hidden">
+                <i data-lucide="sparkles" class="w-3 h-3 text-cyan-400"></i>
+                <span>Recognized using <strong id="ocr-method">Online API</strong> | Latency: <strong id="ocr-latency">0</strong>ms</span>
+            </span>
+        </div>
+        <div class="flex items-center gap-3 text-slate-600">
+            <span>👉 Index Up: Write</span>
+            <span>✋ Open Palm: Hover/Pause</span>
+            <span>✌️ Two Fingers: Eraser</span>
+            <span>✊ Fist: Clear</span>
+        </div>
+    </footer>
+
+    <!-- Settings Drawer -->
+    <div id="settings-modal" class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Control Settings Panel</h3>
+                <button id="settings-close" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar">
+                <!-- Camera Select -->
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                        <i data-lucide="camera" class="w-3.5 h-3.5 text-cyan-400"></i>
+                        <span>Camera Selection</span>
+                    </label>
+                    <select id="setting-camera" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 text-xs font-medium focus:outline-none focus:border-cyan-500 transition cursor-pointer">
+                        <option value="">Default Device</option>
+                    </select>
+                </div>
+                <!-- Stroke Width -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                            <i data-lucide="paintbrush" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            <span>Stroke Thickness</span>
+                        </label>
+                        <span id="brush-val" class="text-xs font-bold text-emerald-400">5px</span>
+                    </div>
+                    <input type="range" id="setting-stroke" min="2" max="20" value="5" class="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-800 rounded-lg appearance-none">
+                </div>
+                <!-- Language select -->
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                        <i data-lucide="languages" class="w-3.5 h-3.5 text-purple-400"></i>
+                        <span>Recognition Language</span>
+                    </label>
+                    <select id="setting-lang" class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 text-xs font-medium focus:outline-none focus:border-purple-500 transition cursor-pointer">
+                        <option value="en">English (default)</option>
+                        <option value="hi">Hindi (हिन्दी)</option>
+                        <option value="te">Telugu (తెలుగు)</option>
+                    </select>
+                </div>
+                <!-- Theme selection -->
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 text-xs font-semibold text-slate-400">
+                        <i data-lucide="monitor" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span>Interface Theme</span>
+                    </label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button id="theme-dark" class="px-3 py-2 rounded-xl text-xs font-semibold border transition border-indigo-500 bg-indigo-500/10 text-indigo-300">Dark</button>
+                        <button id="theme-light" class="px-3 py-2 rounded-xl text-xs font-semibold border transition border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-400">Light</button>
+                        <button id="theme-cyberpunk" class="px-3 py-2 rounded-xl text-xs font-semibold border transition border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-400">Cyberpunk</button>
+                    </div>
+                </div>
+                <!-- Toggles -->
+                <div class="space-y-4 pt-2 border-t border-slate-800/60">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-300">Show Camera Preview</p>
+                            <p class="text-[10px] text-slate-500">Show webcam feed window</p>
+                        </div>
+                        <input type="checkbox" id="setting-show-cam" checked class="w-4 h-4 accent-cyan-500">
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-semibold text-slate-300">Auto Voice Readout</p>
+                            <p class="text-[10px] text-slate-500">Auto read recognized words</p>
+                        </div>
+                        <input type="checkbox" id="setting-tts" class="w-4 h-4 accent-purple-500">
+                    </div>
+                </div>
+            </div>
+            <div class="px-5 py-4 border-t border-slate-800 bg-slate-950/40 text-center">
+                <button id="settings-save-btn" class="w-full py-2 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold transition shadow-lg">
+                    Apply & Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Error Diagnostics (Runs first, catches import errors) -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            const footer = document.querySelector('footer');
+            if (footer) {
+                footer.innerHTML = `<span class="text-rose-500 font-extrabold px-6">SYSTEM ERROR: ${message} (Line ${lineno})</span>`;
+            }
+            console.error(message, source, lineno, colno, error);
+        };
+    </script>
+
+    <!-- Application Script Logic -->
+    <script type="module">
+        // Import MediaPipe Tasks-Vision (version 0.10.3)
+        import { HandLandmarker, FilesetResolver } from "https://cdn.skypack.dev/@mediapipe/tasks-vision@0.10.3";
+
+        // --- Application Settings and State ---
+        const state = {
+            theme: 'dark', // dark, light, cyberpunk
+            strokeWidth: 5,
+            language: 'en', // en, hi, te
+            speechOutput: false,
+            showCamera: true,
+            
+            isCameraActive: false,
+            isHandPresent: false,
+            activeGesture: 'unknown',
+            
+            pointer: { x: 0, y: 0 },
+            isDrawing: false,
+            strokes: [], // Array of strokes: [ [{x, y, t}, ...] ]
+            
+            cameraDevices: [],
+            selectedCameraId: '',
+            fps: 0,
+            
+            notepadText: ''
+        };
+
+        // Bounding box size for Google IME OCR
+        const OCR_BOX_SIZE = 1000;
+
+        // --- Kalman Filter (2D jitter smoothing) ---
+        class KalmanFilter2D {
+            constructor() {
+                this.reset();
+            }
+            init(x, y) {
+                this.x = x;
+                this.y = y;
+                this.p11 = 10;
+                this.p22 = 10;
+                this.q = 0.05; // Lower process noise = smoother movement
+                this.r = 1.6;  // Measurement noise
+                this.isInitialized = true;
+            }
+            update(mx, my) {
+                if (!this.isInitialized) {
+                    this.init(mx, my);
+                    return { x: mx, y: my };
+                }
+                // Predict phase (Constant position model)
+                this.p11 += this.q;
+                this.p22 += this.q;
+
+                // Correct phase
+                const k1 = this.p11 / (this.p11 + this.r);
+                const k2 = this.p22 / (this.p22 + this.r);
+
+                this.x = this.x + k1 * (mx - this.x);
+                this.y = this.y + k2 * (my - this.y);
+                
+                this.p11 = (1 - k1) * this.p11;
+                this.p22 = (1 - k2) * this.p22;
+
+                return { x: this.x, y: this.y };
+            }
+            reset() {
+                this.x = 0;
+                this.y = 0;
+                this.p11 = 10;
+                this.p22 = 10;
+                this.isInitialized = false;
+            }
+        }
+        const kalman = new KalmanFilter2D();
+
+        // --- Gesture Classifier ---
+        function getDistance(pt1, pt2) {
+            const dx = pt1.x - pt2.x;
+            const dy = pt1.y - pt2.y;
+            const dz = (pt1.z || 0) - (pt2.z || 0);
+            return Math.sqrt(dx*dx + dy*dy + dz*dz);
+        }
+
+        function classifyGesture(landmarks) {
+            const wrist = landmarks[0];
+            
+            // Reference knuckles (MCP joints) for each finger
+            const mcpIndex = landmarks[5];
+            const mcpMiddle = landmarks[9];
+            const mcpRing = landmarks[13];
+            const mcpPinky = landmarks[17];
+            
+            // Check finger extension relative to knuckles (distance-based, rotation-invariant)
+            const isThumbUp = getDistance(landmarks[4], wrist) > getDistance(landmarks[2], wrist) && landmarks[4].y < landmarks[2].y;
+            const isIndexUp = getDistance(landmarks[8], mcpIndex) > getDistance(landmarks[6], mcpIndex);
+            const isMiddleUp = getDistance(landmarks[12], mcpMiddle) > getDistance(landmarks[10], mcpMiddle);
+            const isRingUp = getDistance(landmarks[16], mcpRing) > getDistance(landmarks[14], mcpRing);
+            const isPinkyUp = getDistance(landmarks[20], mcpPinky) > getDistance(landmarks[18], mcpPinky);
+
+            const upFingers = (isIndexUp?1:0) + (isMiddleUp?1:0) + (isRingUp?1:0) + (isPinkyUp?1:0);
+
+            // Thumbs Up
+            if (isThumbUp && upFingers === 0) {
+                return 'save';
+            }
+            // Closed Fist
+            if (upFingers === 0 && !isThumbUp) return 'clear';
+            // Write Mode (Index Up)
+            if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) return 'write';
+            // Eraser Mode (Two Fingers Up)
+            if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) return 'erase';
+            // Undo Mode (Three Fingers Up)
+            if (isIndexUp && isMiddleUp && isRingUp && !isPinkyUp) return 'undo';
+            // Pause Mode (Open Palm)
+            if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) return 'pause';
+
+            return 'unknown';
+        }
+
+        const gestureDetails = {
+            write: { label: 'Write Mode', color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' },
+            pause: { label: 'Hover/Pause', color: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20' },
+            erase: { label: 'Eraser Mode', color: 'text-rose-400 bg-rose-400/10 border-rose-400/20' },
+            undo: { label: 'Undo Gesture', color: 'text-amber-400 bg-amber-400/10 border-amber-400/20' },
+            clear: { label: 'Clearing Canvas...', color: 'text-red-400 bg-red-400/10 border-red-400/20 animate-pulse' },
+            save: { label: 'Save Note', color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
+            unknown: { label: 'Moving/Hover', color: 'text-slate-400 bg-slate-400/10 border-slate-800' }
+        };
+
+        // --- Autocomplete Dictionary ---
+        const ENGLISH_DICT = ['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us', 'write', 'air', 'drawing', 'canvas', 'notepad', 'hello', 'world', 'hand', 'finger', 'tracking'];
+        const HINDI_DICT = ['नमस्ते', 'है', 'हैं', 'और', 'का', 'की', 'के', 'में', 'पर', 'यह', 'वह', 'तो', 'भी', 'ही', 'हो', 'कर', 'सकता'];
+        const TELUGU_DICT = ['నమస్తే', 'మరియు', 'యొక్క', 'ఉంది', 'చేయు', 'రాయడం', 'చేతి', 'వేలు', 'కేమెరా', 'చిత్రం', 'నా', 'నీ', 'మన'];
+
+        function getPredictions(text, lang) {
+            if (!text) return [];
+            const words = text.trim().split(/\s+/);
+            const last = words[words.length - 1].toLowerCase();
+            if (!last) return [];
+            
+            const dict = lang === 'hi' ? HINDI_DICT : lang === 'te' ? TELUGU_DICT : ENGLISH_DICT;
+            return dict.filter(w => w.toLowerCase().startsWith(last) && w.toLowerCase() !== last).slice(0, 5);
+        }
+
+        // --- DOM Elements ---
+        const video = document.getElementById('webcam');
+        const skeletonCanvas = document.getElementById('skeleton-canvas');
+        const drawingCanvas = document.getElementById('drawing-canvas');
+        const cursor = document.getElementById('custom-cursor');
+        const cursorDot = document.getElementById('cursor-dot');
+        const gestureBadge = document.getElementById('gesture-badge');
+        const stateBadge = document.getElementById('active-state-badge');
+        const fpsBadge = document.getElementById('fps-badge');
+        const fpsCounter = document.getElementById('fps-counter');
+        const modelLoading = document.getElementById('model-loading-screen');
+        const cameraOffScreen = document.getElementById('camera-off-screen');
+        const editor = document.getElementById('notepad-editor');
+        const predictionsBar = document.getElementById('predictions-bar');
+        const predictionsList = document.getElementById('predictions-list');
+        const ocrLoading = document.getElementById('ocr-loading');
+        const ocrStats = document.getElementById('ocr-stats');
+        const ocrMethod = document.getElementById('ocr-method');
+        const ocrLatency = document.getElementById('ocr-latency');
+        const fistOverlay = document.getElementById('fist-clear-overlay');
+        const fistProgressBar = document.getElementById('fist-progress-bar');
+        const settingsModal = document.getElementById('settings-modal');
+
+        // Draw context
+        const drawCtx = drawingCanvas.getContext('2d');
+        const skelCtx = skeletonCanvas.getContext('2d');
+
+        // --- Setup Variables ---
+        let landmarker = null;
+        let lastVideoTime = -1;
+        let animationFrameId = null;
+        let stream = null;
+
+        // Fist timer vars
+        let fistTimer = null;
+        let fistStart = null;
+
+        // Writing composition
+        let strokeBuffer = [];
+        let lastDrawnPoint = null;
+        let accumulatedStrokes = [];
+        let ocrTimeout = null;
+
+        // FPS tracking
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let fpsInterval = 0;
+
+        // --- Initialize App ---
+        async function init() {
+            // Setup Lucide icons
+            lucide.createIcons();
+
+            // Set canvas sizes
+            resizeCanvases();
+            window.addEventListener('resize', resizeCanvases);
+
+            // Setup triggers
+            document.getElementById('camera-toggle-btn').addEventListener('click', toggleCamera);
+            document.getElementById('canvas-undo').addEventListener('click', undoStroke);
+            document.getElementById('canvas-clear').addEventListener('click', clearCanvas);
+            document.getElementById('settings-btn').addEventListener('click', () => settingsModal.classList.remove('hidden'));
+            document.getElementById('settings-close').addEventListener('click', () => settingsModal.classList.add('hidden'));
+            document.getElementById('settings-save-btn').addEventListener('click', () => settingsModal.classList.add('hidden'));
+            
+            // Editor changes
+            editor.addEventListener('input', handleEditorInput);
+            
+            // Notepad Actions
+            document.getElementById('btn-copy').addEventListener('click', copyText);
+            document.getElementById('btn-speak').addEventListener('click', speakText);
+            document.getElementById('btn-clear-txt').addEventListener('click', clearText);
+            document.getElementById('btn-export-txt').addEventListener('click', exportTxt);
+            document.getElementById('btn-export-pdf').addEventListener('click', exportPdf);
+
+            // Settings binds
+            document.getElementById('setting-stroke').addEventListener('input', (e) => {
+                state.strokeWidth = parseInt(e.target.value);
+                document.getElementById('brush-val').innerText = `${state.strokeWidth}px`;
+                redrawDrawing();
+            });
+            document.getElementById('setting-lang').addEventListener('change', (e) => {
+                state.language = e.target.value;
+            });
+            document.getElementById('setting-show-cam').addEventListener('change', (e) => {
+                state.showCamera = e.target.checked;
+                document.getElementById('camera-pip').style.display = state.showCamera ? 'block' : 'none';
+            });
+            document.getElementById('setting-tts').addEventListener('change', (e) => {
+                state.speechOutput = e.target.checked;
+            });
+
+            // Themes
+            document.getElementById('theme-dark').addEventListener('click', () => changeTheme('dark'));
+            document.getElementById('theme-light').addEventListener('click', () => changeTheme('light'));
+            document.getElementById('theme-cyberpunk').addEventListener('click', () => changeTheme('cyberpunk'));
+
+            // Load cameras list
+            await populateCameraDevices();
+
+            // Load landmarker model from CDN
+            try {
+                const vision = await FilesetResolver.forVisionTasks(
+                    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+                );
+                landmarker = await HandLandmarker.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+                        delegate: 'GPU',
+                    },
+                    runningMode: 'VIDEO',
+                    numHands: 1,
+                    minHandDetectionConfidence: 0.6,
+                    minHandPresenceConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+                modelLoading.classList.add('hidden');
+            } catch (err) {
+                console.error(err);
+                alert('Failed to load tracking models. Check internet connection.');
+            }
+
+            redrawDrawing();
+        }
+
+        // --- UI & Canvas Resizing ---
+        function resizeCanvases() {
+            // Draw Canvas resizing
+            const dRect = drawingCanvas.parentElement.getBoundingClientRect();
+            drawingCanvas.width = dRect.width;
+            drawingCanvas.height = dRect.height;
+            
+            // Overlay Mirror Size
+            if (video.videoWidth > 0) {
+                skeletonCanvas.width = video.videoWidth;
+                skeletonCanvas.height = video.videoHeight;
+            } else {
+                skeletonCanvas.width = 640;
+                skeletonCanvas.height = 480;
+            }
+            redrawDrawing();
+        }
+
+        function drawNotebookGrid(ctx, w, h, color) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            const lineSpacing = 35;
+            ctx.beginPath();
+            for (let y = lineSpacing; y < h; y += lineSpacing) {
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+            }
+            if (state.theme === 'light') {
+                ctx.moveTo(70, 0);
+                ctx.lineTo(70, h);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)'; // ruled margin line
+            }
+            ctx.stroke();
+        }
+
+        function redrawDrawing() {
+            drawCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+            
+            // Themes background fill
+            if (state.theme === 'light') {
+                drawCtx.fillStyle = '#f8fafc';
+                drawCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                drawNotebookGrid(drawCtx, drawingCanvas.width, drawingCanvas.height, '#e2e8f0');
+            } else if (state.theme === 'cyberpunk') {
+                drawCtx.fillStyle = '#020617';
+                drawCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                drawNotebookGrid(drawCtx, drawingCanvas.width, drawingCanvas.height, 'rgba(6, 182, 212, 0.04)');
+            } else {
+                drawCtx.fillStyle = '#0b0f19';
+                drawCtx.fillRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                drawNotebookGrid(drawCtx, drawingCanvas.width, drawingCanvas.height, 'rgba(255, 255, 255, 0.03)');
+            }
+
+            // Draw historical strokes
+            state.strokes.forEach(stroke => {
+                if (stroke.length < 2) return;
+                
+                const isEraser = stroke[0]?.x === -9999;
+                drawCtx.beginPath();
+                drawCtx.lineCap = 'round';
+                drawCtx.lineJoin = 'round';
+
+                if (isEraser) {
+                    drawCtx.globalCompositeOperation = 'destination-out';
+                    drawCtx.lineWidth = state.strokeWidth * 4;
+                } else {
+                    drawCtx.globalCompositeOperation = 'source-over';
+                    drawCtx.lineWidth = state.strokeWidth;
+                    drawCtx.strokeStyle = state.theme === 'light' ? '#0f172a' : state.theme === 'cyberpunk' ? '#d946ef' : '#06b6d4';
+                }
+
+                const startIdx = isEraser ? 1 : 0;
+                if (stroke.length <= startIdx) return;
+
+                drawCtx.moveTo(stroke[startIdx].x, stroke[startIdx].y);
+                for (let i = startIdx + 1; i < stroke.length; i++) {
+                    const xc = (stroke[i - 1].x + stroke[i].x) / 2;
+                    const yc = (stroke[i - 1].y + stroke[i].y) / 2;
+                    drawCtx.quadraticCurveTo(stroke[i - 1].x, stroke[i - 1].y, xc, yc);
+                }
+                drawCtx.stroke();
+            });
+
+            drawCtx.globalCompositeOperation = 'source-over';
+        }
+
+        // --- Theme Configuration ---
+        function changeTheme(theme) {
+            state.theme = theme;
+            document.body.className = '';
+            
+            // Clean up highlight selections
+            const buttons = ['theme-dark', 'theme-light', 'theme-cyberpunk'];
+            buttons.forEach(btnId => {
+                const btn = document.getElementById(btnId);
+                btn.className = "px-3 py-2 rounded-xl text-xs font-semibold border transition border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-400";
+            });
+
+            const activeBtn = document.getElementById(`theme-${theme}`);
+            activeBtn.className = "px-3 py-2 rounded-xl text-xs font-semibold border transition border-indigo-500 bg-indigo-500/10 text-indigo-300";
+
+            if (theme === 'light') {
+                document.body.className = 'bg-slate-50 text-slate-900 overflow-hidden h-screen w-screen flex flex-col transition-colors duration-300';
+                document.getElementById('notepad-container').className = 'flex flex-col h-full rounded-2xl overflow-hidden glass-panel-light border border-slate-200 shadow-sm';
+            } else if (theme === 'cyberpunk') {
+                document.body.className = 'bg-slate-950 text-slate-100 overflow-hidden h-screen w-screen flex flex-col transition-colors duration-300 theme-cyberpunk';
+                document.getElementById('notepad-container').className = 'flex flex-col h-full rounded-2xl overflow-hidden glass-panel border border-cyan-500/20 shadow-glow-cyan bg-slate-950/80';
+            } else {
+                document.body.className = 'bg-slate-950 text-slate-100 overflow-hidden h-screen w-screen flex flex-col transition-colors duration-300';
+                document.getElementById('notepad-container').className = 'flex flex-col h-full rounded-2xl overflow-hidden glass-panel border border-slate-800/80 shadow-2xl';
+            }
+            redrawDrawing();
+        }
+
+        // --- Camera & Setup list ---
+        async function populateCameraDevices() {
+            try {
+                // Request camera permission quickly to read label details
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const select = document.getElementById('setting-camera');
+                
+                select.innerHTML = '<option value="">Default Camera</option>';
+                videoDevices.forEach((device, index) => {
+                    const opt = document.createElement('option');
+                    opt.value = device.deviceId;
+                    opt.text = device.label || `Camera ${index + 1}`;
+                    select.appendChild(opt);
+                });
+                
+                select.addEventListener('change', (e) => {
+                    state.selectedCameraId = e.target.value;
+                    if (state.isCameraActive) {
+                        stopCamera();
+                        startCamera();
+                    }
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function toggleCamera() {
+            if (state.isCameraActive) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const constraints = {
+                    video: state.selectedCameraId 
+                        ? { deviceId: { exact: state.selectedCameraId }, width: 640, height: 480 }
+                        : { width: 640, height: 480, facingMode: 'user' },
+                    audio: false
+                };
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    state.isCameraActive = true;
+                    cameraOffScreen.classList.add('hidden');
+                    fpsBadge.classList.remove('hidden');
+                    fpsBadge.classList.add('flex');
+                    document.getElementById('camera-toggle-btn').className = "px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-rose-400";
+                    document.getElementById('camera-toggle-btn').innerHTML = '<i data-lucide="camera-off" class="w-3.5 h-3.5"></i> Stop Camera';
+                    lucide.createIcons();
+                    
+                    // Reset timings
+                    lastFrameTime = performance.now();
+                    fpsInterval = performance.now();
+                    frameCount = 0;
+                    
+                    skeletonCanvas.width = video.videoWidth;
+                    skeletonCanvas.height = video.videoHeight;
+                    
+                    runDetectionLoop();
+                };
+            } catch (err) {
+                alert('Could not access webcam. Please verify browser permissions.');
+                console.error(err);
+            }
+        }
+
+        function stopCamera() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+                stream = null;
+            }
+            video.srcObject = null;
+            state.isCameraActive = false;
+            state.isHandPresent = false;
+            cameraOffScreen.classList.remove('hidden');
+            fpsBadge.classList.remove('flex');
+            fpsBadge.classList.add('hidden');
+            
+            document.getElementById('camera-toggle-btn').className = "px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white shadow-lg";
+            document.getElementById('camera-toggle-btn').innerHTML = '<i data-lucide="camera" class="w-3.5 h-3.5"></i> Start Camera';
+            lucide.createIcons();
+            
+            updateStateLabels('unknown');
+            hidePointerCursor();
+            kalman.reset();
+        }
+
+        // --- Detection Loop ---
+        function runDetectionLoop() {
+            if (!state.isCameraActive) return;
+
+            // Null-safety check: wait for landmarker model to finish loading from CDN
+            if (!landmarker) {
+                animationFrameId = requestAnimationFrame(runDetectionLoop);
+                return;
+            }
+
+            const now = performance.now();
+            frameCount++;
+            if (now - fpsInterval >= 1000) {
+                state.fps = Math.round((frameCount * 1000) / (now - fpsInterval));
+                fpsCounter.innerText = state.fps;
+                frameCount = 0;
+                fpsInterval = now;
+            }
+
+            if (video.currentTime !== lastVideoTime) {
+                lastVideoTime = video.currentTime;
+                
+                const results = landmarker.detectForVideo(video, now);
+                skelCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+
+                if (results.landmarks && results.landmarks.length > 0) {
+                    state.isHandPresent = true;
+                    const handLandmarks = results.landmarks[0];
+                    
+                    // Gesture classification
+                    const gesture = classifyGesture(handLandmarks);
+                    updateStateLabels(gesture);
+
+                    // Track index tip (landmark 8)
+                    const indexTip = handLandmarks[8];
+                    
+                    // Coordinates mapping scaled directly to localized drawing canvas (mirrored)
+                    const rawX = (1 - indexTip.x) * drawingCanvas.width;
+                    const rawY = indexTip.y * drawingCanvas.height;
+                    
+                    // Smooth coordinates using position-only Kalman filter
+                    state.pointer = kalman.update(rawX, rawY);
+                    
+                    // Update drawing state
+                    state.isDrawing = gesture === 'write';
+                    
+                    // Render elements
+                    updatePointerCursor(gesture);
+                    processAirDrawing(gesture);
+                    drawSkeleton(handLandmarks, gesture);
+                } else {
+                    state.isHandPresent = false;
+                    updateStateLabels('unknown');
+                    hidePointerCursor();
+                    kalman.reset();
+                    
+                    // If finger leaves, commit current active drawing buffer
+                    commitActiveStroke();
+                }
+            }
+
+            animationFrameId = requestAnimationFrame(runDetectionLoop);
+        }
+
+        // --- Skeleton drawer ---
+        function drawSkeleton(landmarks, gesture) {
+            let color = '#06b6d4'; // default cyan
+            if (gesture === 'write') color = '#10b981'; // green
+            if (gesture === 'erase') color = '#f43f5e'; // red
+            if (gesture === 'clear') color = '#ef4444'; // dark red
+            
+            skelCtx.strokeStyle = color;
+            skelCtx.fillStyle = color;
+            skelCtx.lineWidth = 3;
+
+            const getPoint = (lm) => ({
+                x: (1 - lm.x) * skeletonCanvas.width,
+                y: lm.y * skeletonCanvas.height
+            });
+
+            // Dots
+            landmarks.forEach(lm => {
+                const pt = getPoint(lm);
+                skelCtx.beginPath();
+                skelCtx.arc(pt.x, pt.y, 4, 0, 2*Math.PI);
+                skelCtx.fill();
+            });
+
+            // Bones mapping
+            const bones = [
+                [0, 1], [1, 2], [2, 3], [3, 4], // thumb
+                [0, 5], [5, 6], [6, 7], [7, 8], // index
+                [9, 10], [10, 11], [11, 12],     // middle
+                [13, 14], [14, 15], [15, 16],    // ring
+                [0, 17], [17, 18], [18, 19], [19, 20], // pinky
+                [5, 9], [9, 13], [13, 17] // palm bridges
+            ];
+
+            skelCtx.beginPath();
+            bones.forEach(([start, end]) => {
+                const p1 = getPoint(landmarks[start]);
+                const p2 = getPoint(landmarks[end]);
+                skelCtx.moveTo(p1.x, p1.y);
+                skelCtx.lineTo(p2.x, p2.y);
+            });
+            skelCtx.stroke();
+        }
+
+        // --- Gesture Labels Updater ---
+        let lastGesture = 'unknown';
+        function updateStateLabels(gesture) {
+            state.activeGesture = gesture;
+            
+            if (gesture === lastGesture) return;
+            lastGesture = gesture;
+
+            const details = gestureDetails[gesture] || gestureDetails.unknown;
+            gestureBadge.innerText = `● ${details.label}`;
+            gestureBadge.className = `absolute top-4 right-4 py-1 px-2.5 rounded-md text-[10px] uppercase font-bold tracking-wider z-20 border backdrop-blur-md bg-slate-900/40 pointer-events-none select-none ${details.color}`;
+            
+            stateBadge.innerText = details.label;
+            stateBadge.className = `px-2 py-0.5 rounded text-[10px] font-bold border transition ${details.color}`;
+        }
+
+        // --- Pointer cursor visuals ---
+        function updatePointerCursor(gesture) {
+            cursor.style.left = `${state.pointer.x}px`;
+            cursor.style.top = `${state.pointer.y}px`;
+            
+            if (gesture === 'write') {
+                cursor.className = "absolute pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2 rounded-full border flex items-center justify-center w-6 h-6 border-emerald-400 bg-emerald-400/10 cursor-pulse";
+                cursorDot.className = "rounded-full w-2.5 h-2.5 bg-emerald-400";
+            } else if (gesture === 'erase') {
+                cursor.className = "absolute pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2 rounded-full border flex items-center justify-center w-12 h-12 border-rose-500 bg-rose-500/10";
+                cursorDot.className = "rounded-full w-4 h-4 bg-rose-500";
+            } else {
+                cursor.className = "absolute pointer-events-none z-40 -translate-x-1/2 -translate-y-1/2 rounded-full border flex items-center justify-center w-4 h-4 border-cyan-400 bg-cyan-400/5";
+                cursorDot.className = "rounded-full w-1.5 h-1.5 bg-cyan-400";
+            }
+        }
+
+        function hidePointerCursor() {
+            cursor.style.left = "-100px";
+            cursor.style.top = "-100px";
+        }
+
+        // --- Drawing Engine logic ---
+        function processAirDrawing(gesture) {
+            const x = state.pointer.x;
+            const y = state.pointer.y;
+            const pt = { x, y, t: Math.round(performance.now()) };
+
+            // 1. Eraser mode
+            if (gesture === 'erase') {
+                if (!lastDrawnPoint) {
+                    lastDrawnPoint = pt;
+                    strokeBuffer = [{ x: -9999, y: -9999, t: 0 }, pt];
+                    return;
+                }
+                drawCtx.globalCompositeOperation = 'destination-out';
+                drawCtx.lineCap = 'round';
+                drawCtx.lineJoin = 'round';
+                drawCtx.lineWidth = state.strokeWidth * 4;
+                drawCtx.beginPath();
+                drawCtx.moveTo(lastDrawnPoint.x, lastDrawnPoint.y);
+                drawCtx.lineTo(x, y);
+                drawCtx.stroke();
+                drawCtx.globalCompositeOperation = 'source-over';
+
+                strokeBuffer.push(pt);
+                lastDrawnPoint = pt;
+                return;
+            }
+
+            // 2. Clear fist count down gesture
+            if (gesture === 'clear') {
+                handleFistClearGesture();
+                return;
+            } else {
+                resetFistClearTimer();
+            }
+
+            // 3. Drawing strokes
+            if (state.isDrawing && gesture === 'write') {
+                if (!lastDrawnPoint) {
+                    lastDrawnPoint = pt;
+                    strokeBuffer = [pt];
+                    return;
+                }
+
+                drawCtx.globalCompositeOperation = 'source-over';
+                drawCtx.lineCap = 'round';
+                drawCtx.lineJoin = 'round';
+                drawCtx.lineWidth = state.strokeWidth;
+                drawCtx.strokeStyle = state.theme === 'light' ? '#0f172a' : state.theme === 'cyberpunk' ? '#d946ef' : '#06b6d4';
+
+                drawCtx.beginPath();
+                const mx = (lastDrawnPoint.x + x) / 2;
+                const my = (lastDrawnPoint.y + y) / 2;
+                drawCtx.moveTo(lastDrawnPoint.x, lastDrawnPoint.y);
+                drawCtx.quadraticCurveTo(lastDrawnPoint.x, lastDrawnPoint.y, mx, my);
+                drawCtx.stroke();
+
+                strokeBuffer.push(pt);
+                lastDrawnPoint = pt;
+            } else {
+                commitActiveStroke();
+            }
+        }
+
+        // Commit active buffer lines
+        function commitActiveStroke() {
+            if (strokeBuffer.length > 0) {
+                state.strokes.push([...strokeBuffer]);
+                handleStrokeComplete([...strokeBuffer]);
+                strokeBuffer = [];
+            }
+            lastDrawnPoint = null;
+        }
+
+        // --- Undo / Clear Controls ---
+        function undoStroke() {
+            if (state.strokes.length > 0) {
+                state.strokes.pop();
+                redrawDrawing();
+            }
+        }
+
+        function clearCanvas() {
+            state.strokes = [];
+            accumulatedStrokes = [];
+            if (ocrTimeout) clearTimeout(ocrTimeout);
+            redrawDrawing();
+        }
+
+        // --- Closed Fist Clear Timer ---
+        function handleFistClearGesture() {
+            if (!fistStart) {
+                fistStart = Date.now();
+                fistOverlay.classList.remove('hidden');
+                
+                fistTimer = setInterval(() => {
+                    const elapsed = Date.now() - fistStart;
+                    const percent = Math.min((elapsed / 2000) * 100, 100);
+                    fistProgressBar.style.width = `${percent}%`;
+
+                    if (elapsed >= 2000) {
+                        clearCanvas();
+                        resetFistClearTimer();
+                    }
+                }, 50);
+            }
+        }
+
+        function resetFistClearTimer() {
+            if (fistTimer) {
+                clearInterval(fistTimer);
+                fistTimer = null;
+            }
+            fistStart = null;
+            fistOverlay.classList.add('hidden');
+            fistProgressBar.style.width = "0%";
+        }
+
+        // --- Multi-stroke Segmenter and OCR Pipeline ---
+        function handleStrokeComplete(stroke) {
+            // Add to character building buffer
+            accumulatedStrokes.push(stroke);
+
+            if (ocrTimeout) clearTimeout(ocrTimeout);
+            
+            // Set 2.0s character boundary timeout (more comfortable pace)
+            ocrTimeout = setTimeout(() => {
+                triggerHandwritingRecognition();
+            }, 2000);
+        }
+
+        let ocrStartTime = 0;
+        async function triggerHandwritingRecognition() {
+            const strokesToRecognize = [...accumulatedStrokes];
+            if (strokesToRecognize.length === 0) return;
+
+            // Clear the accumulator immediately for the next word
+            accumulatedStrokes = [];
+            
+            ocrLoading.classList.remove('hidden');
+            ocrStartTime = Date.now();
+
+            try {
+                // Normalize strokes
+                const formattedInk = normalizeStrokes(strokesToRecognize);
+                if (formattedInk.length === 0) throw new Error("Empty normalized strokes");
+
+                const requestBody = {
+                    app_version: 0.4,
+                    api_level: '537.3',
+                    device: '5.0',
+                    input_type: 0,
+                    options: 'enable_pre_space',
+                    requests: [{
+                        writing_guide: { writing_area_width: 1000, writing_area_height: 1000 },
+                        pre_context: '',
+                        max_num_results: 5,
+                        max_completions: 0,
+                        language: state.language,
+                        ink: formattedInk
+                    }]
+                };
+
+                // Query Google Handwriting API directly from browser (CORS-free endpoint)
+                const url = 'https://www.google.com.tw/inputtools/request?ime=handwriting&app=autopen&dbg=1&cs=1&oe=utf-8&write=true';
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+                
+                if (data && data[0] === 'SUCCESS' && data[1][0][1] && data[1][0][1].candidates) {
+                    const candidates = data[1][0][1].candidates;
+                    const word = candidates[0];
+                    
+                    appendWordToNotepad(word, strokesToRecognize);
+                    showRecognitionStats('Online API', Date.now() - ocrStartTime);
+                } else {
+                    throw new Error("No online candidates returned");
+                }
+            } catch (err) {
+                console.warn('Online OCR failed. Triggering offline fallback OCR via local Tesseract.js...', err);
+                await runOfflineTesseractOCR(strokesToRecognize);
+            } finally {
+                ocrLoading.classList.add('hidden');
+            }
+        }
+
+        // Bounding box coordinate normalizer
+        function normalizeStrokes(strokes) {
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            strokes.forEach(stroke => {
+                stroke.forEach(pt => {
+                    if (pt.x < minX) minX = pt.x;
+                    if (pt.x > maxX) maxX = pt.x;
+                    if (pt.y < minY) minY = pt.y;
+                    if (pt.y > maxY) maxY = pt.y;
+                });
+            });
+
+            const width = maxX - minX;
+            const height = maxY - minY;
+            if (width === 0 && height === 0) return [];
+
+            // Enforce minimum dimensions of 50px to prevent tiny jitters/dots from stretching
+            const normWidth = Math.max(width, 50);
+            const normHeight = Math.max(height, 50);
+
+            const scaleX = 900 / normWidth;
+            const scaleY = 900 / normHeight;
+            const scale = Math.min(scaleX, scaleY);
+            
+            const offsetX = 50 + (900 - (width * scale)) / 2;
+            const offsetY = 50 + (900 - (height * scale)) / 2;
+
+            return strokes.map(stroke => {
+                const xCoords = [];
+                const yCoords = [];
+                const tCoords = [];
+                stroke.forEach(pt => {
+                    xCoords.push(Math.round((pt.x - minX) * scale + offsetX));
+                    yCoords.push(Math.round((pt.y - minY) * scale + offsetY));
+                    tCoords.push(pt.t);
+                });
+                return [xCoords, yCoords, tCoords];
+            });
+        }
+
+        // Offline OCR Fallback via Tesseract.js
+        async function runOfflineTesseractOCR(strokesToRecognize) {
+            try {
+                // Invert canvas colors (white background, black writing)
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = drawingCanvas.width;
+                tempCanvas.height = drawingCanvas.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                tempCtx.fillStyle = '#FFFFFF';
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                tempCtx.drawImage(drawingCanvas, 0, 0);
+
+                // Threshold filter
+                const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const d = imgData.data;
+                for (let i = 0; i < d.length; i += 4) {
+                    const r = d[i], g = d[i+1], b = d[i+2];
+                    if (r < 30 && g < 30 && b < 40) {
+                        d[i] = 255; d[i+1] = 255; d[i+2] = 255; // make white
+                    } else {
+                        d[i] = 0; d[i+1] = 0; d[i+2] = 0; // make black
+                    }
+                }
+                tempCtx.putImageData(imgData, 0, 0);
+
+                // Run Tesseract
+                const result = await Tesseract.recognize(tempCanvas, 'eng');
+                const cleanedText = result.data.text.trim();
+
+                if (cleanedText) {
+                    appendWordToNotepad(cleanedText, strokesToRecognize);
+                    showRecognitionStats('Local Tesseract.js (Offline)', Date.now() - ocrStartTime);
+                } else {
+                    console.log('Offline OCR failed: No text identified.');
+                }
+            } catch (err) {
+                console.error('Offline OCR compilation failed:', err);
+            }
+        }
+
+        function appendWordToNotepad(word, recognizedStrokes) {
+            state.notepadText = editor.value ? `${editor.value.trim()} ${word}` : word;
+            editor.value = state.notepadText;
+            
+            // Read aloud if selected
+            if (state.speechOutput) {
+                speakSingleWord(word);
+            }
+
+            // Remove only the recognized strokes from history
+            if (recognizedStrokes) {
+                state.strokes = state.strokes.filter(s => !recognizedStrokes.includes(s));
+            } else {
+                state.strokes = [];
+            }
+            redrawDrawing();
+            updatePredictions();
+        }
+
+        function showRecognitionStats(method, latency) {
+            ocrMethod.innerText = method;
+            ocrLatency.innerText = latency;
+            ocrStats.classList.remove('hidden');
+            ocrStats.classList.add('flex');
+        }
+
+        // --- Autocomplete UI Sync ---
+        function handleEditorInput(e) {
+            state.notepadText = e.target.value;
+            updatePredictions();
+        }
+
+        function updatePredictions() {
+            const list = getPredictions(state.notepadText, state.language);
+            predictionsList.innerHTML = '';
+            
+            if (list.length > 0) {
+                predictionsBar.classList.remove('hidden');
+                predictionsBar.classList.add('flex');
+                
+                list.forEach(word => {
+                    const btn = document.createElement('button');
+                    btn.className = "px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-xs font-medium text-slate-200 border border-slate-700/40 hover:border-cyan-500/30 transition duration-150";
+                    btn.innerText = word;
+                    btn.onclick = () => {
+                        // Apply prediction
+                        const words = state.notepadText.trim().split(/\s+/);
+                        words[words.length - 1] = word;
+                        state.notepadText = words.join(' ') + ' ';
+                        editor.value = state.notepadText;
+                        updatePredictions();
+                    };
+                    predictionsList.appendChild(btn);
+                });
+            } else {
+                predictionsBar.classList.remove('flex');
+                predictionsBar.classList.add('hidden');
+            }
+        }
+
+        // --- Audio Reader ---
+        function speakSingleWord(word) {
+            if (!window.speechSynthesis) return;
+            const u = new SpeechSynthesisUtterance(word);
+            let lang = 'en-US';
+            if (state.language === 'hi') lang = 'hi-IN';
+            if (state.language === 'te') lang = 'te-IN';
+            u.lang = lang;
+            window.speechSynthesis.speak(u);
+        }
+
+        function speakText() {
+            if (!state.notepadText) return;
+            speakSingleWord(state.notepadText);
+        }
+
+        // --- Save and Export Options ---
+        function copyText() {
+            if (!state.notepadText) return;
+            navigator.clipboard.writeText(state.notepadText);
+            
+            const btn = document.getElementById('btn-copy');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i><span class="text-emerald-400">Copied</span>';
+            lucide.createIcons();
+            
+            setTimeout(() => {
+                btn.innerHTML = originalHTML;
+                lucide.createIcons();
+            }, 2000);
+        }
+
+        function clearText() {
+            if (confirm('Clear all notepad text?')) {
+                state.notepadText = '';
+                editor.value = '';
+                updatePredictions();
+            }
+        }
+
+        function exportTxt() {
+            if (!state.notepadText) return;
+            const blob = new Blob([state.notepadText], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `airwrite-notes-${Date.now()}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Thumbs-up quick gesture save trigger
+        function triggerThumbsUpSave() {
+            if (!state.notepadText) return;
+            exportTxt();
+            speakSingleWord("Saved Notes");
+        }
+
+        // PDF Print compiling
+        function exportPdf() {
+            const canvasData = drawingCanvas.toDataURL('image/png');
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                alert('Pop-ups blocked. Please allow pop-ups for PDF generation.');
+                return;
+            }
+
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>AirWrite Document Export</title>
+                    <style>
+                        body { font-family: Helvetica, Arial, sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: 0 auto; line-height: 1.6; }
+                        .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+                        .title { font-size: 26px; font-weight: 700; color: #0f172a; margin: 0; }
+                        .date { font-size: 13px; color: #64748b; }
+                        .section-title { font-size: 16px; font-weight: 600; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 30px; margin-bottom: 10px; border-left: 3px solid #06b6d4; padding-left: 8px; }
+                        .canvas-container { background: #0f172a; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; text-align: center; margin-bottom: 30px; }
+                        .canvas-img { max-width: 100%; max-height: 350px; border-radius: 8px; display: block; margin: 0 auto; }
+                        .text-content { white-space: pre-wrap; font-size: 15px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; min-height: 150px; color: #334155; }
+                        .footer { margin-top: 50px; border-top: 1px solid #f1f5f9; padding-top: 15px; font-size: 11px; color: #94a3b8; text-align: center; }
+                        @media print { body { padding: 20px; } button { display: none; } }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div>
+                            <h1 class="title">AirWrite AI Notes</h1>
+                            <p class="date">Smart Air Writing Notepad Document</p>
+                        </div>
+                        <div class="date">Exported: ${new Date().toLocaleString()}</div>
+                    </div>
+                    <div class="section-title">Virtual Canvas Sketch</div>
+                    <div class="canvas-container">
+                        <img class="canvas-img" src="${canvasData}" />
+                    </div>
+                    <div class="section-title">Recognized Text Content</div>
+                    <div class="text-content">${state.notepadText || 'No text recorded.'}</div>
+                    <div class="footer">Powered by AirWrite AI - Zero-Install Edition</div>
+                    <script>
+                        window.onload = function() {
+                            window.print();
+                            setTimeout(function() { window.close(); }, 500);
+                        }
+                    <\/script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+
+        // --- Thumbs up gesture triggers ---
+        let lastThumbsUp = 0;
+        function triggerSaveAction() {
+            const now = Date.now();
+            if (now - lastThumbsUp > 5000) { // debounce save action for 5s
+                lastThumbsUp = now;
+                triggerThumbsUpSave();
+            }
+        }
+
+        // --- Coordinate mapping thumbsup link trigger ---
+        window.processAirDrawing = processAirDrawing;
+        window.triggerSaveAction = triggerSaveAction;
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
