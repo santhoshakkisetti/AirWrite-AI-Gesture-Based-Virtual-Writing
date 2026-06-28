@@ -63,6 +63,11 @@ Built an AI-powered air writing application that tracks finger movements through
 
 
 file:///Users/santhoshakkisetti/.gemini/antigravity/scratch/air-writing-notepad/index.htmlx
+
+
+
+
+
 ---
 
 ## Acknowledgements
